@@ -13,10 +13,14 @@ import {
   Wifi,
 } from 'lucide-react'
 
-const MEDIA_SERVER_ORIGIN = 'https://live.ibrahimfarm.com'
+const MEDIA_SERVER_ORIGIN =
+  process.env.NEXT_PUBLIC_MEDIAMTX_WEBRTC_ORIGIN ??
+  'https://live.ibrahimfarm.com'
+const HLS_SERVER_ORIGIN =
+  process.env.NEXT_PUBLIC_MEDIAMTX_HLS_ORIGIN ?? MEDIA_SERVER_ORIGIN
 const STREAM_PATH = 'live/hasil_opus'
 const WHIP_ENDPOINT = `${MEDIA_SERVER_ORIGIN}/${STREAM_PATH}/whip`
-const HLS_FALLBACK_URL = `${MEDIA_SERVER_ORIGIN}/${STREAM_PATH}/index.m3u8`
+const HLS_FALLBACK_URL = `${HLS_SERVER_ORIGIN}/${STREAM_PATH}/index.m3u8`
 const PUBLIC_ICE_HOST = '187.77.114.161'
 const WEBRTC_PORT = '8889'
 const ICE_MUX_PORT = '8189'
@@ -55,6 +59,32 @@ function waitForIceGatheringComplete(pc: RTCPeerConnection) {
 
     pc.addEventListener('icegatheringstatechange', handleStateChange)
   })
+}
+
+function getStreamingErrorMessage(error: unknown) {
+  if (error instanceof DOMException) {
+    if (error.name === 'NotAllowedError') {
+      return 'Izin kamera atau mikrofon ditolak. Buka izin browser untuk kamera dan mikrofon, lalu mulai lagi.'
+    }
+
+    if (error.name === 'NotFoundError') {
+      return 'Kamera atau mikrofon tidak ditemukan di perangkat ini.'
+    }
+
+    if (error.name === 'NotReadableError') {
+      return 'Kamera atau mikrofon sedang dipakai aplikasi lain.'
+    }
+  }
+
+  if (error instanceof TypeError && error.message.includes('fetch')) {
+    return `Tidak bisa menghubungi WHIP endpoint ${WHIP_ENDPOINT}. Cek CORS/preflight OPTIONS, firewall ICE ${ICE_MUX_PORT}, dan log MediaMTX.`
+  }
+
+  if (error instanceof Error) {
+    return `${error.message} Endpoint: ${WHIP_ENDPOINT}`
+  }
+
+  return `Streaming gagal. Endpoint: ${WHIP_ENDPOINT}`
 }
 
 export function StudioAdmin() {
@@ -243,6 +273,13 @@ export function StudioAdmin() {
       return
     }
 
+    if (!window.isSecureContext) {
+      setErrorMessage(
+        'Halaman harus dibuka lewat HTTPS atau localhost agar kamera dan mikrofon bisa dipakai.'
+      )
+      return
+    }
+
     if (!navigator.mediaDevices?.getUserMedia) {
       setErrorMessage('Browser ini tidak mendukung akses kamera.')
       return
@@ -311,14 +348,18 @@ export function StudioAdmin() {
 
       const response = await fetch(WHIP_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/sdp' },
+        headers: {
+          Accept: 'application/sdp',
+          'Content-Type': 'application/sdp',
+        },
         body: pc.localDescription?.sdp ?? offer.sdp,
       })
 
       if (!response.ok) {
         const reason = await response.text().catch(() => '')
         throw new Error(
-          reason || `Gagal terhubung ke server (${response.status})`
+          reason ||
+            `MediaMTX menolak koneksi WHIP (${response.status} ${response.statusText})`
         )
       }
 
@@ -338,16 +379,14 @@ export function StudioAdmin() {
       setIsStreaming(true)
       setStatusMessage(`Siaran aktif ke ${STREAM_PATH}`)
     } catch (error) {
+      const message = getStreamingErrorMessage(error)
+
       console.error('Error streaming:', error)
-      setErrorMessage(
-        'Gagal live. Pastikan izin kamera diberikan dan web memakai HTTPS.'
-      )
+      setErrorMessage(message)
       setStatusMessage('Siaran belum tersambung')
       closePeerConnection()
       releaseLocalMedia()
-      window.alert(
-        'Gagal live. Pastikan izin kamera diberikan dan web memakai HTTPS.'
-      )
+      window.alert(message)
     } finally {
       setIsConnecting(false)
     }
@@ -401,9 +440,9 @@ export function StudioAdmin() {
               <div className="mt-1 font-semibold text-white">9:16</div>
             </div>
             <div className="col-span-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 sm:col-span-1">
-              <div className="text-neutral-500">WebRTC</div>
+              <div className="text-neutral-500">Proxy</div>
               <div className="mt-1 truncate font-semibold text-white">
-                :{WEBRTC_PORT} / ICE :{ICE_MUX_PORT}
+                WebRTC {WEBRTC_PORT} / HLS 8888
               </div>
             </div>
           </div>
