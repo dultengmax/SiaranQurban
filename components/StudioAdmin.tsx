@@ -20,6 +20,7 @@ const HLS_SERVER_ORIGIN =
   process.env.NEXT_PUBLIC_MEDIAMTX_HLS_ORIGIN ?? MEDIA_SERVER_ORIGIN
 const STREAM_PATH = 'live/hasil_opus'
 const WHIP_ENDPOINT = `${MEDIA_SERVER_ORIGIN}/${STREAM_PATH}/whip`
+const PUBLISH_PAGE_URL = `${MEDIA_SERVER_ORIGIN}/${STREAM_PATH}/publish`
 const HLS_FALLBACK_URL = `${HLS_SERVER_ORIGIN}/${STREAM_PATH}/index.m3u8`
 const PUBLIC_ICE_HOST = '187.77.114.161'
 const WEBRTC_PORT = '8889'
@@ -412,34 +413,34 @@ export function StudioAdmin() {
       : 'Mulai Siaran Langsung'
 
   return (
-    <main className="min-h-screen bg-neutral-950 text-white">
-      <section className="mx-auto flex min-h-screen w-full max-w-7xl flex-col justify-center px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mb-6 flex flex-col gap-4 border-b border-white/10 pb-5 md:flex-row md:items-end md:justify-between">
+    <main className="min-h-svh overflow-x-hidden bg-neutral-950 text-white">
+      <section className="mx-auto flex min-h-svh w-full max-w-7xl flex-col px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8 xl:justify-center">
+        <div className="mb-5 flex flex-col gap-3 border-b border-white/10 pb-4 sm:mb-6 sm:gap-4 sm:pb-5 md:flex-row md:items-end md:justify-between">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1 text-xs font-semibold uppercase text-red-200">
               <Radio className="h-3.5 w-3.5" />
               Live Studio
             </div>
-            <h1 className="text-3xl font-bold text-white md:text-4xl">
+            <h1 className="text-2xl font-bold text-white sm:text-3xl md:text-4xl">
               Studio Penyiaran
             </h1>
-            <p className="mt-2 max-w-2xl text-sm text-neutral-400">
+            <p className="mt-2 max-w-2xl text-xs leading-5 text-neutral-400 sm:text-sm">
               Output portrait 1080x1920 via WebRTC WHIP ke path {STREAM_PATH}.
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 text-xs text-neutral-300 sm:grid-cols-3">
-            <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+          <div className="grid w-full grid-cols-2 gap-2 text-xs text-neutral-300 sm:w-auto sm:grid-cols-3">
+            <div className="min-w-0 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
               <div className="text-neutral-500">Resolusi</div>
-              <div className="mt-1 font-semibold text-white">
+              <div className="mt-1 truncate font-semibold text-white">
                 {OUTPUT_RESOLUTION}
               </div>
             </div>
-            <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+            <div className="min-w-0 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
               <div className="text-neutral-500">Rasio</div>
               <div className="mt-1 font-semibold text-white">9:16</div>
             </div>
-            <div className="col-span-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 sm:col-span-1">
+            <div className="col-span-2 min-w-0 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 sm:col-span-1">
               <div className="text-neutral-500">Proxy</div>
               <div className="mt-1 truncate font-semibold text-white">
                 WebRTC {WEBRTC_PORT} / HLS 8888
@@ -448,8 +449,8 @@ export function StudioAdmin() {
           </div>
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,480px)_minmax(280px,1fr)] lg:items-start lg:justify-center">
-          <div className="mx-auto w-full max-w-[430px] overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900 shadow-2xl shadow-black/40">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,480px)_minmax(280px,1fr)] xl:items-start xl:justify-center">
+          <div className="mx-auto w-full max-w-[390px] overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900 shadow-2xl shadow-black/40 sm:max-w-[430px]">
             <div className="relative aspect-[9/16] bg-black">
               <video
                 ref={videoRef}
@@ -470,7 +471,7 @@ export function StudioAdmin() {
                 </div>
               )}
 
-              <div className="absolute left-4 top-4 flex flex-wrap items-center gap-2">
+              <div className="absolute left-3 top-3 flex flex-wrap items-center gap-2 sm:left-4 sm:top-4">
                 {isStreaming && (
                   <div className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-1 text-xs font-bold uppercase text-white shadow-lg shadow-red-950/50">
                     <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
@@ -485,12 +486,12 @@ export function StudioAdmin() {
                 )}
               </div>
 
-              <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/65 px-4 py-3 backdrop-blur">
+              <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/65 px-3 py-2.5 backdrop-blur sm:bottom-4 sm:left-4 sm:right-4 sm:px-4 sm:py-3">
                 <div className="min-w-0">
                   <div className="text-xs uppercase text-neutral-500">
                     Status
                   </div>
-                  <p className="truncate text-sm font-medium text-white">
+                  <p className="line-clamp-2 text-sm font-medium leading-5 text-white sm:truncate">
                     {statusMessage}
                   </p>
                 </div>
@@ -501,7 +502,7 @@ export function StudioAdmin() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-4 border-t border-neutral-800 bg-neutral-900 p-5 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col gap-4 border-t border-neutral-800 bg-neutral-900 p-4 sm:p-5 md:flex-row md:items-center md:justify-between">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-800 text-neutral-200">
                   <MonitorUp className="h-5 w-5" />
@@ -520,7 +521,7 @@ export function StudioAdmin() {
                 type="button"
                 onClick={isStreaming ? stopStreaming : startStreaming}
                 disabled={isConnecting}
-                className={`inline-flex min-h-12 items-center justify-center gap-2 rounded-md px-6 py-3 text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-70 ${
+                className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md px-6 py-3 text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-70 md:w-auto ${
                   isStreaming
                     ? 'bg-neutral-700 text-white hover:bg-neutral-600'
                     : 'bg-red-600 text-white shadow-[0_0_24px_rgba(220,38,38,0.35)] hover:bg-red-500'
@@ -538,65 +539,73 @@ export function StudioAdmin() {
             </div>
           </div>
 
-          <aside className="space-y-4">
-            <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+          <aside className="space-y-3 sm:space-y-4">
+            <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 sm:p-5">
               <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
                 <CheckCircle2 className="h-4 w-4 text-emerald-400" />
                 Jalur MediaMTX
               </div>
               <dl className="space-y-3 text-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="text-neutral-500">Path</dt>
-                  <dd className="font-medium text-neutral-100">
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="shrink-0 text-neutral-500">Path</dt>
+                  <dd className="min-w-0 break-words text-right font-medium text-neutral-100">
                     {STREAM_PATH}
                   </dd>
                 </div>
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="text-neutral-500">Protokol</dt>
-                  <dd className="font-medium text-neutral-100">
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="shrink-0 text-neutral-500">Protokol</dt>
+                  <dd className="min-w-0 text-right font-medium text-neutral-100">
                     WHIP / WebRTC
                   </dd>
                 </div>
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="text-neutral-500">Origin</dt>
-                  <dd className="truncate font-medium text-neutral-100">
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="shrink-0 text-neutral-500">Origin</dt>
+                  <dd className="min-w-0 break-all text-right font-medium text-neutral-100">
                     {MEDIA_SERVER_ORIGIN}
                   </dd>
                 </div>
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="text-neutral-500">Video</dt>
-                  <dd className="font-medium text-neutral-100">
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="shrink-0 text-neutral-500">Video</dt>
+                  <dd className="min-w-0 text-right font-medium text-neutral-100">
                     {OUTPUT_RESOLUTION}
                   </dd>
                 </div>
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="text-neutral-500">Frame</dt>
-                  <dd className="font-medium text-neutral-100">Portrait 9:16</dd>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="shrink-0 text-neutral-500">Frame</dt>
+                  <dd className="min-w-0 text-right font-medium text-neutral-100">
+                    Portrait 9:16
+                  </dd>
                 </div>
               </dl>
             </div>
 
-            <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+            <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 sm:p-5">
               <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
                 <Clapperboard className="h-4 w-4 text-sky-400" />
                 Endpoint VPS
               </div>
               <dl className="space-y-3 text-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="text-neutral-500">ICE Host</dt>
-                  <dd className="font-medium text-neutral-100">
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="shrink-0 text-neutral-500">ICE Host</dt>
+                  <dd className="min-w-0 text-right font-medium text-neutral-100">
                     {PUBLIC_ICE_HOST}
                   </dd>
                 </div>
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="text-neutral-500">WHIP</dt>
-                  <dd className="truncate font-medium text-neutral-100">
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="shrink-0 text-neutral-500">WHIP</dt>
+                  <dd className="min-w-0 break-all text-right font-medium text-neutral-100">
                     {WHIP_ENDPOINT}
                   </dd>
                 </div>
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="text-neutral-500">HLS</dt>
-                  <dd className="truncate font-medium text-neutral-100">
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="shrink-0 text-neutral-500">Publish</dt>
+                  <dd className="min-w-0 break-all text-right font-medium text-neutral-100">
+                    {PUBLISH_PAGE_URL}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="shrink-0 text-neutral-500">HLS</dt>
+                  <dd className="min-w-0 break-all text-right font-medium text-neutral-100">
                     {HLS_FALLBACK_URL}
                   </dd>
                 </div>
@@ -613,7 +622,7 @@ export function StudioAdmin() {
               </div>
             )}
 
-            <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+            <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 sm:p-5">
               <h3 className="text-sm font-semibold text-white">Telemetry</h3>
               <div className="mt-4 space-y-3 text-sm text-neutral-300">
                 <div className="flex items-center gap-3">

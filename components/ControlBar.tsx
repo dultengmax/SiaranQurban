@@ -35,7 +35,7 @@ export function ControlBar({
   onExit,
 }: ControlBarProps) {
   return (
-    <div className="flex items-center justify-center gap-3 p-4 bg-card border-t border-border rounded-b-lg">
+    <div className="flex flex-wrap items-center justify-center gap-2 rounded-b-lg border-t border-border bg-card p-3 sm:gap-3 sm:p-4">
       {/* Audio toggle */}
       <Button
         variant={isMuted ? 'destructive' : 'default'}
@@ -72,7 +72,7 @@ export function ControlBar({
       {/* Start/Stop Stream */}
       <Button
         onClick={onStartStop}
-        className={`px-6 rounded-full font-semibold ${
+        className={`min-w-[9.5rem] flex-1 rounded-full px-5 font-semibold sm:flex-none sm:px-6 ${
           isStreaming
             ? 'bg-red-600 hover:bg-red-700'
             : 'bg-accent hover:bg-accent/90'

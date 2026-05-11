@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { Header } from '@/components/Header'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -13,14 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Bell,
-  Lock,
-  Palette,
-  Volume2,
-  Shield,
-  LogOut,
-} from 'lucide-react'
+import { Bell, Lock, LogOut, Palette, Shield, Volume2 } from 'lucide-react'
 
 export default function SettingsPage() {
   const [notifications, setNotifications] = useState({
@@ -33,40 +25,53 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-background">
       <Header />
 
-      <main className="max-w-3xl mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-6">Settings</h1>
+      <main className="mx-auto max-w-3xl px-3 py-5 sm:px-4 sm:py-8">
+        <h1 className="mb-5 text-2xl font-bold sm:mb-6 sm:text-3xl">
+          Settings
+        </h1>
 
         <Tabs defaultValue="notifications" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-6">
-            <TabsTrigger value="notifications" className="flex items-center gap-2">
-              <Bell className="w-4 h-4" />
-              <span className="hidden sm:inline">Notifications</span>
+          <TabsList className="mb-5 grid h-auto w-full grid-cols-2 gap-1 p-1 sm:mb-6 sm:grid-cols-4">
+            <TabsTrigger
+              value="notifications"
+              className="flex min-h-10 items-center gap-2 text-xs sm:text-sm"
+            >
+              <Bell className="h-4 w-4" />
+              <span className="truncate">Notifications</span>
             </TabsTrigger>
-            <TabsTrigger value="privacy" className="flex items-center gap-2">
-              <Lock className="w-4 h-4" />
-              <span className="hidden sm:inline">Privacy</span>
+            <TabsTrigger
+              value="privacy"
+              className="flex min-h-10 items-center gap-2 text-xs sm:text-sm"
+            >
+              <Lock className="h-4 w-4" />
+              <span className="truncate">Privacy</span>
             </TabsTrigger>
-            <TabsTrigger value="display" className="flex items-center gap-2">
-              <Palette className="w-4 h-4" />
-              <span className="hidden sm:inline">Display</span>
+            <TabsTrigger
+              value="display"
+              className="flex min-h-10 items-center gap-2 text-xs sm:text-sm"
+            >
+              <Palette className="h-4 w-4" />
+              <span className="truncate">Display</span>
             </TabsTrigger>
-            <TabsTrigger value="audio" className="flex items-center gap-2">
-              <Volume2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Audio</span>
+            <TabsTrigger
+              value="audio"
+              className="flex min-h-10 items-center gap-2 text-xs sm:text-sm"
+            >
+              <Volume2 className="h-4 w-4" />
+              <span className="truncate">Audio</span>
             </TabsTrigger>
           </TabsList>
 
-          {/* Notifications Tab */}
           <TabsContent value="notifications">
-            <div className="bg-card border border-border rounded-lg p-6 space-y-6">
-              <h2 className="text-xl font-semibold flex items-center gap-2">
-                <Bell className="w-5 h-5 text-accent" />
+            <div className="space-y-6 rounded-lg border border-border bg-card p-4 sm:p-6">
+              <h2 className="flex items-center gap-2 text-xl font-semibold">
+                <Bell className="h-5 w-5 text-accent" />
                 Notification Settings
               </h2>
 
               <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-secondary rounded">
-                  <div>
+                <div className="flex flex-col items-start justify-between gap-3 rounded bg-secondary p-4 sm:flex-row sm:items-center">
+                  <div className="min-w-0">
                     <p className="font-medium text-foreground">
                       Live Stream Notifications
                     </p>
@@ -83,12 +88,12 @@ export default function SettingsPage() {
                         liveNotifications: e.target.checked,
                       }))
                     }
-                    className="w-5 h-5 rounded accent-current"
+                    className="h-5 w-5 rounded accent-current"
                   />
                 </div>
 
-                <div className="flex items-center justify-between p-4 bg-secondary rounded">
-                  <div>
+                <div className="flex flex-col items-start justify-between gap-3 rounded bg-secondary p-4 sm:flex-row sm:items-center">
+                  <div className="min-w-0">
                     <p className="font-medium text-foreground">
                       Chat Notifications
                     </p>
@@ -105,12 +110,12 @@ export default function SettingsPage() {
                         chatNotifications: e.target.checked,
                       }))
                     }
-                    className="w-5 h-5 rounded accent-current"
+                    className="h-5 w-5 rounded accent-current"
                   />
                 </div>
 
-                <div className="flex items-center justify-between p-4 bg-secondary rounded">
-                  <div>
+                <div className="flex flex-col items-start justify-between gap-3 rounded bg-secondary p-4 sm:flex-row sm:items-center">
+                  <div className="min-w-0">
                     <p className="font-medium text-foreground">
                       Email Updates
                     </p>
@@ -127,20 +132,21 @@ export default function SettingsPage() {
                         emailUpdates: e.target.checked,
                       }))
                     }
-                    className="w-5 h-5 rounded accent-current"
+                    className="h-5 w-5 rounded accent-current"
                   />
                 </div>
               </div>
 
-              <Button>Save Notification Settings</Button>
+              <Button className="w-full sm:w-auto">
+                Save Notification Settings
+              </Button>
             </div>
           </TabsContent>
 
-          {/* Privacy Tab */}
           <TabsContent value="privacy">
-            <div className="bg-card border border-border rounded-lg p-6 space-y-6">
-              <h2 className="text-xl font-semibold flex items-center gap-2">
-                <Lock className="w-5 h-5 text-accent" />
+            <div className="space-y-6 rounded-lg border border-border bg-card p-4 sm:p-6">
+              <h2 className="flex items-center gap-2 text-xl font-semibold">
+                <Lock className="h-5 w-5 text-accent" />
                 Privacy & Security
               </h2>
 
@@ -179,8 +185,8 @@ export default function SettingsPage() {
                   </Select>
                 </div>
 
-                <div className="flex items-center justify-between p-4 bg-secondary rounded">
-                  <div>
+                <div className="flex flex-col items-start justify-between gap-3 rounded bg-secondary p-4 sm:flex-row sm:items-center">
+                  <div className="min-w-0">
                     <p className="font-medium text-foreground">
                       Two-Factor Authentication
                     </p>
@@ -188,21 +194,22 @@ export default function SettingsPage() {
                       Add extra security to your account
                     </p>
                   </div>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" className="w-full sm:w-auto">
                     Enable
                   </Button>
                 </div>
               </div>
 
-              <Button>Save Privacy Settings</Button>
+              <Button className="w-full sm:w-auto">
+                Save Privacy Settings
+              </Button>
             </div>
           </TabsContent>
 
-          {/* Display Tab */}
           <TabsContent value="display">
-            <div className="bg-card border border-border rounded-lg p-6 space-y-6">
-              <h2 className="text-xl font-semibold flex items-center gap-2">
-                <Palette className="w-5 h-5 text-accent" />
+            <div className="space-y-6 rounded-lg border border-border bg-card p-4 sm:p-6">
+              <h2 className="flex items-center gap-2 text-xl font-semibold">
+                <Palette className="h-5 w-5 text-accent" />
                 Display Settings
               </h2>
 
@@ -241,23 +248,23 @@ export default function SettingsPage() {
                   </Select>
                 </div>
 
-                <div className="flex items-center justify-between p-4 bg-secondary rounded">
-                  <p className="font-medium text-foreground">
-                    Compact Mode
-                  </p>
-                  <input type="checkbox" className="w-5 h-5 rounded accent-current" />
+                <div className="flex flex-col items-start justify-between gap-3 rounded bg-secondary p-4 sm:flex-row sm:items-center">
+                  <p className="font-medium text-foreground">Compact Mode</p>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 rounded accent-current"
+                  />
                 </div>
               </div>
 
-              <Button>Save Display Settings</Button>
+              <Button className="w-full sm:w-auto">Save Display Settings</Button>
             </div>
           </TabsContent>
 
-          {/* Audio Tab */}
           <TabsContent value="audio">
-            <div className="bg-card border border-border rounded-lg p-6 space-y-6">
-              <h2 className="text-xl font-semibold flex items-center gap-2">
-                <Volume2 className="w-5 h-5 text-accent" />
+            <div className="space-y-6 rounded-lg border border-border bg-card p-4 sm:p-6">
+              <h2 className="flex items-center gap-2 text-xl font-semibold">
+                <Volume2 className="h-5 w-5 text-accent" />
                 Audio & Media
               </h2>
 
@@ -302,38 +309,37 @@ export default function SettingsPage() {
                     min="0"
                     max="100"
                     defaultValue="70"
-                    className="w-full mt-2 accent-current"
+                    className="mt-2 w-full accent-current"
                   />
                 </div>
               </div>
 
-              <Button>Save Audio Settings</Button>
+              <Button className="w-full sm:w-auto">Save Audio Settings</Button>
             </div>
           </TabsContent>
         </Tabs>
 
-        {/* Account Danger Zone */}
-        <div className="mt-8 bg-card border border-red-900/20 rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-red-500 flex items-center gap-2 mb-4">
-            <Shield className="w-5 h-5" />
+        <div className="mt-6 rounded-lg border border-red-900/20 bg-card p-4 sm:mt-8 sm:p-6">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-red-500">
+            <Shield className="h-5 w-5" />
             Account Actions
           </h2>
 
           <div className="space-y-3">
-            <Button variant="outline" className="gap-2 text-red-500">
-              <LogOut className="w-4 h-4" />
+            <Button
+              variant="outline"
+              className="w-full gap-2 text-red-500 sm:w-auto"
+            >
+              <LogOut className="h-4 w-4" />
               Logout from All Devices
             </Button>
 
-            <Button
-              variant="destructive"
-              className="w-full"
-            >
+            <Button variant="destructive" className="w-full">
               Delete Account
             </Button>
           </div>
 
-          <p className="text-sm text-muted-foreground mt-4">
+          <p className="mt-4 text-sm text-muted-foreground">
             These actions are permanent and cannot be undone.
           </p>
         </div>

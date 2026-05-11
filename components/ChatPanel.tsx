@@ -36,13 +36,11 @@ export function ChatPanel({
   }
 
   return (
-    <div className="flex flex-col h-full bg-card rounded-lg border border-border">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-border">
+    <div className="flex h-full min-h-[360px] max-h-[70svh] flex-col overflow-hidden rounded-lg border border-border bg-card lg:max-h-none">
+      <div className="border-b border-border px-3 py-3 sm:px-4">
         <h3 className="font-semibold text-foreground">Live Chat</h3>
       </div>
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin scrollbar-thumb-secondary scrollbar-track-transparent">
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center text-center">
@@ -77,9 +75,8 @@ export function ChatPanel({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
       {!isReadOnly && (
-        <div className="px-3 py-3 border-t border-border flex gap-2">
+        <div className="flex gap-2 border-t border-border px-2.5 py-3 sm:px-3">
           <Input
             placeholder="Say something..."
             value={message}

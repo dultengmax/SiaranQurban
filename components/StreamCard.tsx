@@ -10,8 +10,8 @@ interface StreamCardProps {
 
 export function StreamCard({ stream }: StreamCardProps) {
   return (
-    <Link href={`/stream/${stream.id}`}>
-      <div className="group cursor-pointer rounded-lg overflow-hidden bg-card hover:bg-card/80 transition-colors">
+    <Link href={`/stream/${stream.id}`} className="block min-w-0">
+      <div className="group overflow-hidden rounded-lg bg-card transition-colors hover:bg-card/80">
         {/* Thumbnail */}
         <div className="relative w-full aspect-video bg-muted overflow-hidden">
           <Image

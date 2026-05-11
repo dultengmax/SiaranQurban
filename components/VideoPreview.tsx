@@ -30,7 +30,9 @@ export function VideoPreview({
       <div
         className={`w-full h-full bg-muted flex items-center justify-center ${className}`}
       >
-        <span className="text-muted-foreground text-sm">{placeHolder}</span>
+        <span className="px-4 text-center text-sm text-muted-foreground">
+          {placeHolder}
+        </span>
       </div>
     )
   }

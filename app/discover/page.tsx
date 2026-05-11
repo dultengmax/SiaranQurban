@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Header } from '@/components/Header'
 import { StreamCard } from '@/components/StreamCard'
 import { Input } from '@/components/ui/input'
@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Sliders } from 'lucide-react'
+import { Sliders, X } from 'lucide-react'
 import { mockStreams } from '@/lib/mock-data'
 
 type SortOption = 'trending' | 'viewers' | 'recent'
@@ -22,16 +22,24 @@ export default function DiscoverPage() {
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [sortBy, setSortBy] = useState<SortOption>('trending')
 
-  const categories = ['all', 'Development', 'Gaming', 'Music', 'Art & Design', 'IRL', 'Esports']
+  const categories = [
+    'all',
+    'Development',
+    'Gaming',
+    'Music',
+    'Art & Design',
+    'IRL',
+    'Esports',
+  ]
 
-  // Filter and sort streams
   const filteredStreams = useMemo(() => {
     let streams = mockStreams.filter((stream) => {
+      const normalizedSearch = searchQuery.toLowerCase()
       const matchesSearch =
-        stream.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        stream.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        stream.streamer.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        stream.tags.some((tag) => tag.includes(searchQuery.toLowerCase()))
+        stream.title.toLowerCase().includes(normalizedSearch) ||
+        stream.description.toLowerCase().includes(normalizedSearch) ||
+        stream.streamer.username.toLowerCase().includes(normalizedSearch) ||
+        stream.tags.some((tag) => tag.toLowerCase().includes(normalizedSearch))
 
       const matchesCategory =
         selectedCategory === 'all' || stream.category === selectedCategory
@@ -39,18 +47,16 @@ export default function DiscoverPage() {
       return matchesSearch && matchesCategory
     })
 
-    // Sort
     if (sortBy === 'viewers') {
       streams.sort((a, b) => b.viewers - a.viewers)
     } else if (sortBy === 'recent') {
-      // Just reverse for demo
       streams = streams.reverse()
     } else {
-      // trending - live first, then by viewers
       streams.sort((a, b) => {
         if (a.isLive !== b.isLive) {
           return a.isLive ? -1 : 1
         }
+
         return b.viewers - a.viewers
       })
     }
@@ -58,30 +64,35 @@ export default function DiscoverPage() {
     return streams
   }, [searchQuery, selectedCategory, sortBy])
 
+  const clearFilters = () => {
+    setSearchQuery('')
+    setSelectedCategory('all')
+    setSortBy('trending')
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Page Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">Discover Streams</h1>
-          <p className="text-muted-foreground">
+      <main className="mx-auto max-w-7xl px-3 py-5 sm:px-4 sm:py-8">
+        <div className="mb-6 sm:mb-8">
+          <h1 className="mb-2 text-3xl font-bold sm:text-4xl">
+            Discover Streams
+          </h1>
+          <p className="text-sm text-muted-foreground sm:text-base">
             Browse and find amazing streams from creators around the world
           </p>
         </div>
 
-        {/* Filters */}
-        <div className="bg-card border border-border rounded-lg p-6 mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <Sliders className="w-5 h-5 text-accent" />
+        <div className="mb-6 rounded-lg border border-border bg-card p-4 sm:mb-8 sm:p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Sliders className="h-5 w-5 text-accent" />
             <h2 className="font-semibold">Filters</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Search */}
-            <div className="lg:col-span-2">
-              <label className="block text-sm font-medium mb-2 text-foreground">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="sm:col-span-2">
+              <label className="mb-2 block text-sm font-medium text-foreground">
                 Search
               </label>
               <Input
@@ -92,12 +103,14 @@ export default function DiscoverPage() {
               />
             </div>
 
-            {/* Category */}
             <div>
-              <label className="block text-sm font-medium mb-2 text-foreground">
+              <label className="mb-2 block text-sm font-medium text-foreground">
                 Category
               </label>
-              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+              <Select
+                value={selectedCategory}
+                onValueChange={setSelectedCategory}
+              >
                 <SelectTrigger className="bg-secondary text-foreground">
                   <SelectValue />
                 </SelectTrigger>
@@ -111,12 +124,14 @@ export default function DiscoverPage() {
               </Select>
             </div>
 
-            {/* Sort */}
             <div>
-              <label className="block text-sm font-medium mb-2 text-foreground">
+              <label className="mb-2 block text-sm font-medium text-foreground">
                 Sort By
               </label>
-              <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
+              <Select
+                value={sortBy}
+                onValueChange={(value) => setSortBy(value as SortOption)}
+              >
                 <SelectTrigger className="bg-secondary text-foreground">
                   <SelectValue />
                 </SelectTrigger>
@@ -129,50 +144,52 @@ export default function DiscoverPage() {
             </div>
           </div>
 
-          {/* Active Filters */}
-          {(searchQuery || selectedCategory !== 'all' || sortBy !== 'trending') && (
+          {(searchQuery ||
+            selectedCategory !== 'all' ||
+            sortBy !== 'trending') && (
             <div className="mt-4 flex flex-wrap gap-2">
               {searchQuery && (
-                <div className="bg-secondary px-3 py-1 rounded-full text-sm flex items-center gap-2">
-                  <span>Search: {searchQuery}</span>
+                <div className="flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-sm">
+                  <span className="max-w-[14rem] truncate">
+                    Search: {searchQuery}
+                  </span>
                   <button
                     onClick={() => setSearchQuery('')}
                     className="text-muted-foreground hover:text-foreground"
+                    aria-label="Clear search filter"
                   >
-                    ✕
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
               )}
               {selectedCategory !== 'all' && (
-                <div className="bg-secondary px-3 py-1 rounded-full text-sm flex items-center gap-2">
+                <div className="flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-sm">
                   <span>Category: {selectedCategory}</span>
                   <button
                     onClick={() => setSelectedCategory('all')}
                     className="text-muted-foreground hover:text-foreground"
+                    aria-label="Clear category filter"
                   >
-                    ✕
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
               )}
               {sortBy !== 'trending' && (
-                <div className="bg-secondary px-3 py-1 rounded-full text-sm flex items-center gap-2">
+                <div className="flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-sm">
                   <span>Sort: {sortBy}</span>
                   <button
                     onClick={() => setSortBy('trending')}
                     className="text-muted-foreground hover:text-foreground"
+                    aria-label="Clear sort filter"
                   >
-                    ✕
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
               )}
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => {
-                  setSearchQuery('')
-                  setSelectedCategory('all')
-                  setSortBy('trending')
-                }}
+                onClick={clearFilters}
                 className="text-accent hover:text-accent/80"
               >
                 Clear all
@@ -181,34 +198,26 @@ export default function DiscoverPage() {
           )}
         </div>
 
-        {/* Results */}
         <div>
           <div className="mb-4">
             <p className="text-sm text-muted-foreground">
-              Showing {filteredStreams.length} stream{filteredStreams.length !== 1 ? 's' : ''}
+              Showing {filteredStreams.length} stream
+              {filteredStreams.length !== 1 ? 's' : ''}
             </p>
           </div>
 
           {filteredStreams.length === 0 ? (
-            <div className="bg-card border border-border rounded-lg p-12 text-center">
-              <p className="text-lg font-medium text-foreground mb-2">
+            <div className="rounded-lg border border-border bg-card p-8 text-center sm:p-12">
+              <p className="mb-2 text-lg font-medium text-foreground">
                 No streams found
               </p>
-              <p className="text-muted-foreground mb-6">
+              <p className="mb-6 text-muted-foreground">
                 Try adjusting your filters or search query
               </p>
-              <Button
-                onClick={() => {
-                  setSearchQuery('')
-                  setSelectedCategory('all')
-                  setSortBy('trending')
-                }}
-              >
-                Reset Filters
-              </Button>
+              <Button onClick={clearFilters}>Reset Filters</Button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {filteredStreams.map((stream) => (
                 <StreamCard key={stream.id} stream={stream} />
               ))}
