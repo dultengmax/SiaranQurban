@@ -1,24 +1,145 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Image from 'next/image'
+import { io } from 'socket.io-client'
 import { Header } from '@/components/Header'
-import { ChatPanel } from '@/components/ChatPanel'
+import { LiveChatMonitor } from '@/components/LiveChatMonitor'
 import { StreamCard } from '@/components/StreamCard'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
+  AlertCircle,
   Compass,
   Heart,
   Info,
   Clock,
   Eye,
+  Loader2,
   Share2,
   Users,
+  Wifi,
 } from 'lucide-react'
-import { mockChatMessages, mockStreams } from '@/lib/mock-data'
-import type { ChatMessage } from '@/lib/types'
+import { mockStreams } from '@/lib/mock-data'
+
+const API_URL = 'https://dbmhq.site'
+const LIVE_VIEWER_SESSION_ID = 'live_utama'
+const TOKEN_STORAGE_KEYS = ['adminAccessToken', 'accessToken', 'token']
+
+type ViewerSocketStatus = 'idle' | 'missing-token' | 'connecting' | 'connected' | 'error'
+
+interface ActiveViewer {
+  id: string
+  name: string
+  meta?: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function readStringField(
+  source: Record<string, unknown>,
+  keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    const value = source[key]
+
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+
+    if (typeof value === 'number') {
+      return String(value)
+    }
+  }
+
+  return undefined
+}
+
+function normalizeViewer(viewer: unknown, index: number): ActiveViewer {
+  if (typeof viewer === 'string' || typeof viewer === 'number') {
+    const value = String(viewer)
+
+    return {
+      id: value,
+      name: value,
+    }
+  }
+
+  if (!isRecord(viewer)) {
+    return {
+      id: `viewer-${index}`,
+      name: `User ${index + 1}`,
+    }
+  }
+
+  const id =
+    readStringField(viewer, ['id', '_id', 'userId', 'user_id', 'uid']) ??
+    `viewer-${index}`
+  const name =
+    readStringField(viewer, [
+      'name',
+      'username',
+      'displayName',
+      'fullName',
+      'email',
+    ]) ?? `User ${index + 1}`
+  const meta =
+    readStringField(viewer, ['email', 'phone', 'role']) ??
+    (id !== name ? id : undefined)
+
+  return {
+    id,
+    name,
+    meta,
+  }
+}
+
+function normalizeViewerPayload(data: unknown) {
+  if (!isRecord(data)) {
+    return {
+      total: 0,
+      viewers: [] as ActiveViewer[],
+    }
+  }
+
+  const viewers = Array.isArray(data.viewers)
+    ? data.viewers.map(normalizeViewer)
+    : []
+  const total = Number(data.total)
+
+  return {
+    total: Number.isFinite(total) ? total : viewers.length,
+    viewers,
+  }
+}
+
+function getStoredAdminAccessToken() {
+  if (process.env.NEXT_PUBLIC_ADMIN_ACCESS_TOKEN) {
+    return process.env.NEXT_PUBLIC_ADMIN_ACCESS_TOKEN
+  }
+
+  for (const key of TOKEN_STORAGE_KEYS) {
+    const token = window.localStorage.getItem(key)
+
+    if (token) {
+      return token
+    }
+  }
+
+  return null
+}
+
+function getViewerInitials(name: string) {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('')
+}
 
 export default function StreamViewerPage() {
   const params = useParams()
@@ -27,9 +148,68 @@ export default function StreamViewerPage() {
 
   const [isLiked, setIsLiked] = useState(false)
   const [isFollowing, setIsFollowing] = useState(false)
-  const [chatMessages, setChatMessages] =
-    useState<ChatMessage[]>(mockChatMessages)
   const [showInfo, setShowInfo] = useState(false)
+  const [viewerSocketStatus, setViewerSocketStatus] =
+    useState<ViewerSocketStatus>('idle')
+  const [viewerSocketError, setViewerSocketError] = useState<string | null>(
+    null
+  )
+  const [activeViewerTotal, setActiveViewerTotal] = useState(0)
+  const [activeViewers, setActiveViewers] = useState<ActiveViewer[]>([])
+  const [viewerUpdatedAt, setViewerUpdatedAt] = useState<Date | null>(null)
+
+  useEffect(() => {
+    const adminAccessToken = getStoredAdminAccessToken()
+
+    if (!adminAccessToken) {
+      setViewerSocketStatus('missing-token')
+      setViewerSocketError(
+        'Token admin belum tersedia untuk membaca penonton login.'
+      )
+      return
+    }
+
+    setViewerSocketStatus('connecting')
+    setViewerSocketError(null)
+
+    const socket = io(API_URL, {
+      auth: {
+        token: adminAccessToken,
+        monitorOnly: true,
+      },
+    })
+
+    socket.on('connect', () => {
+      setViewerSocketStatus('connected')
+      setViewerSocketError(null)
+      socket.emit('watch_logged_in_viewers', {
+        sessionId: LIVE_VIEWER_SESSION_ID,
+      })
+    })
+
+    socket.on('connect_error', (error) => {
+      setViewerSocketStatus('error')
+      setViewerSocketError(error.message || 'Gagal tersambung ke monitor.')
+    })
+
+    socket.on('disconnect', () => {
+      setViewerSocketStatus('connecting')
+    })
+
+    socket.on('logged_in_viewers', (data: unknown) => {
+      const payload = normalizeViewerPayload(data)
+
+      setActiveViewerTotal(payload.total)
+      setActiveViewers(payload.viewers)
+      setViewerUpdatedAt(new Date())
+      setViewerSocketStatus('connected')
+      setViewerSocketError(null)
+    })
+
+    return () => {
+      socket.disconnect()
+    }
+  }, [])
 
   if (!currentStream) {
     return (
@@ -45,20 +225,6 @@ export default function StreamViewerPage() {
         </main>
       </div>
     )
-  }
-
-  const handleSendMessage = (message: string) => {
-    const newMessage: ChatMessage = {
-      id: Date.now().toString(),
-      author: 'You',
-      authorId: 'current-user',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=you',
-      content: message,
-      timestamp: new Date(),
-      color: 'hsl(270 100% 55%)',
-    }
-
-    setChatMessages((prev) => [...prev, newMessage])
   }
 
   const recommendedStreams = mockStreams
@@ -156,6 +322,10 @@ export default function StreamViewerPage() {
                   <Users className="h-4 w-4" />
                   {currentStream.streamer.followers.toLocaleString()} followers
                 </div>
+                <div className="flex items-center gap-1">
+                  <Wifi className="h-4 w-4" />
+                  {activeViewerTotal.toLocaleString()} login active
+                </div>
               </div>
             </div>
 
@@ -241,12 +411,99 @@ export default function StreamViewerPage() {
           </div>
 
           <div className="space-y-5 lg:sticky lg:top-24 lg:max-h-[calc(100svh-7rem)] lg:overflow-y-auto lg:pr-1">
-            <div className="lg:h-[520px]">
-              <ChatPanel
-                messages={chatMessages}
-                onSendMessage={handleSendMessage}
-              />
+            <div className="rounded-lg border border-border bg-card p-4">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="flex items-center gap-2 font-semibold text-foreground">
+                    <Users className="h-5 w-5 text-accent" />
+                    Penonton Login
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Session {LIVE_VIEWER_SESSION_ID}
+                  </p>
+                </div>
+                <div
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+                    viewerSocketStatus === 'connected'
+                      ? 'bg-emerald-500/15 text-emerald-400'
+                      : viewerSocketStatus === 'error' ||
+                          viewerSocketStatus === 'missing-token'
+                        ? 'bg-red-500/15 text-red-400'
+                        : 'bg-secondary text-muted-foreground'
+                  }`}
+                >
+                  {viewerSocketStatus === 'connecting' ||
+                  viewerSocketStatus === 'idle' ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : viewerSocketStatus === 'connected' ? (
+                    <Wifi className="h-3.5 w-3.5" />
+                  ) : (
+                    <AlertCircle className="h-3.5 w-3.5" />
+                  )}
+                  {viewerSocketStatus === 'connected'
+                    ? 'Online'
+                    : viewerSocketStatus === 'missing-token'
+                      ? 'Token'
+                      : viewerSocketStatus === 'error'
+                        ? 'Error'
+                        : 'Connect'}
+                </div>
+              </div>
+
+              <div className="mb-4 rounded-lg bg-secondary p-4">
+                <div className="text-3xl font-bold text-foreground">
+                  {activeViewerTotal.toLocaleString()}
+                </div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  user login sedang menonton
+                </div>
+                {viewerUpdatedAt && (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    Update {viewerUpdatedAt.toLocaleTimeString('id-ID')}
+                  </div>
+                )}
+              </div>
+
+              {viewerSocketError && (
+                <div className="mb-4 rounded-md border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-200">
+                  {viewerSocketError}
+                </div>
+              )}
+
+              <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                {activeViewers.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+                    Belum ada user login yang terbaca.
+                  </div>
+                ) : (
+                  activeViewers.map((viewer) => (
+                    <div
+                      key={viewer.id}
+                      className="flex min-w-0 items-center gap-3 rounded-md bg-secondary/60 p-3"
+                    >
+                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-accent/20 text-xs font-bold text-accent">
+                        {getViewerInitials(viewer.name) || 'U'}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-foreground">
+                          {viewer.name}
+                        </div>
+                        {viewer.meta && (
+                          <div className="truncate text-xs text-muted-foreground">
+                            {viewer.meta}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
+
+            <LiveChatMonitor
+              apiUrl={API_URL}
+              sessionId={LIVE_VIEWER_SESSION_ID}
+            />
 
             <div className="space-y-3">
               <h3 className="flex items-center gap-2 font-semibold text-foreground">
