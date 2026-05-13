@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   Clock,
@@ -31,6 +31,14 @@ interface LiveChatMessage {
   timeLabel: string
   timestamp?: Date
   meta?: string
+}
+
+interface LiveChatMessageItemProps {
+  message: LiveChatMessage
+  isSelected: boolean
+  copiedId: string | null
+  onCopy: (id: string, text: string) => void
+  onReply: (message: LiveChatMessage) => void
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -87,7 +95,11 @@ function readDateField(source: Record<string, unknown>) {
     const numericValue = typeof value === 'number' ? value : Number(value)
     const date =
       Number.isFinite(numericValue) && numericValue > 0
-        ? new Date(numericValue < 1000000000000 ? numericValue * 1000 : numericValue)
+        ? new Date(
+            numericValue < 1000000000000
+              ? numericValue * 1000
+              : numericValue
+          )
         : new Date(value)
 
     if (!Number.isNaN(date.getTime())) {
@@ -204,23 +216,112 @@ function getMessageInitials(name: string) {
     .join('')
 }
 
+function getMessagesSignature(messages: LiveChatMessage[]) {
+  return messages
+    .map((message) => {
+      return `${message.id}:${message.timestamp?.getTime() ?? 0}:${message.content.length}`
+    })
+    .join('|')
+}
+
+const LiveChatMessageItem = memo(function LiveChatMessageItem({
+  message,
+  isSelected,
+  copiedId,
+  onCopy,
+  onReply,
+}: LiveChatMessageItemProps) {
+  return (
+    <div
+      className={`rounded-lg border p-3 ${
+        isSelected ? 'border-accent bg-accent/10' : 'border-border bg-secondary/50'
+      }`}
+    >
+      <div className="mb-2 flex items-start gap-3">
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-accent/20 text-xs font-bold text-accent">
+          {getMessageInitials(message.author) || 'V'}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-semibold text-foreground">
+              {message.author}
+            </span>
+            <span className="flex-shrink-0 text-xs text-muted-foreground">
+              {message.timeLabel}
+            </span>
+          </div>
+          {message.meta && (
+            <div className="truncate text-xs text-muted-foreground">
+              {message.meta}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+        {message.content}
+      </p>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => onReply(message)}
+          className="h-8 gap-1.5"
+        >
+          <Reply className="h-3.5 w-3.5" />
+          Balas
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => onCopy(message.id, `${message.author}: ${message.content}`)}
+          className="h-8 gap-1.5 text-muted-foreground"
+        >
+          <Copy className="h-3.5 w-3.5" />
+          {copiedId === message.id ? 'Disalin' : 'Salin'}
+        </Button>
+      </div>
+    </div>
+  )
+})
+
 export function LiveChatMonitor({
   apiUrl,
   sessionId,
-  limit = 100,
-  refreshMs = 5000,
+  limit = 60,
+  refreshMs = 10000,
 }: LiveChatMonitorProps) {
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const copyTimerRef = useRef<number | null>(null)
+  const isFetchingRef = useRef(false)
+  const isPageVisibleRef = useRef(true)
+  const messagesSignatureRef = useRef('')
+
   const [status, setStatus] = useState<LiveChatStatus>('idle')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [messages, setMessages] = useState<LiveChatMessage[]>([])
   const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null)
   const [replyTarget, setReplyTarget] = useState<LiveChatMessage | null>(null)
   const [replyDraft, setReplyDraft] = useState('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(query)
+    }, 250)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [query])
+
   const filteredMessages = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase()
+    const normalizedQuery = debouncedQuery.trim().toLowerCase()
 
     if (!normalizedQuery) {
       return messages
@@ -233,17 +334,26 @@ export function LiveChatMonitor({
         message.meta?.toLowerCase().includes(normalizedQuery)
       )
     })
-  }, [messages, query])
+  }, [debouncedQuery, messages])
 
   const loadMessages = useCallback(async () => {
+    if (isFetchingRef.current) {
+      return
+    }
+
+    isFetchingRef.current = true
     setStatus((current) => (current === 'ready' ? current : 'loading'))
     setErrorMessage(null)
+
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
 
     try {
       const res = await fetch(
         `${apiUrl}/sessions/${sessionId}/messages?limit=${limit}`,
         {
           cache: 'no-store',
+          signal: abortController.signal,
         }
       )
 
@@ -257,15 +367,30 @@ export function LiveChatMonitor({
         .sort((a, b) => {
           return (b.timestamp?.getTime() ?? 0) - (a.timestamp?.getTime() ?? 0)
         })
+      const nextSignature = getMessagesSignature(normalizedMessages)
 
-      setMessages(normalizedMessages)
+      if (nextSignature !== messagesSignatureRef.current) {
+        messagesSignatureRef.current = nextSignature
+        setMessages(normalizedMessages)
+      }
+
       setLastUpdatedAt(new Date())
       setStatus('ready')
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return
+      }
+
       setStatus('error')
       setErrorMessage(
         error instanceof Error ? error.message : 'Gagal mengambil chat'
       )
+    } finally {
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null
+      }
+
+      isFetchingRef.current = false
     }
   }, [apiUrl, limit, sessionId])
 
@@ -273,24 +398,59 @@ export function LiveChatMonitor({
     void loadMessages()
 
     const refreshTimer = window.setInterval(() => {
-      void loadMessages()
+      if (isPageVisibleRef.current) {
+        void loadMessages()
+      }
     }, refreshMs)
 
     return () => {
       window.clearInterval(refreshTimer)
+      abortControllerRef.current?.abort()
     }
   }, [loadMessages, refreshMs])
 
-  const copyText = async (id: string, text: string) => {
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      isPageVisibleRef.current = document.visibilityState === 'visible'
+
+      if (isPageVisibleRef.current) {
+        void loadMessages()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [loadMessages])
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current)
+      }
+    }
+  }, [])
+
+  const copyText = useCallback(async (id: string, text: string) => {
     await navigator.clipboard.writeText(text).catch(() => undefined)
     setCopiedId(id)
-    window.setTimeout(() => setCopiedId(null), 1500)
-  }
 
-  const prepareReply = (message: LiveChatMessage) => {
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current)
+    }
+
+    copyTimerRef.current = window.setTimeout(() => {
+      setCopiedId(null)
+      copyTimerRef.current = null
+    }, 1500)
+  }, [])
+
+  const prepareReply = useCallback((message: LiveChatMessage) => {
     setReplyTarget(message)
     setReplyDraft(`@${message.author} `)
-  }
+  }, [])
 
   return (
     <div className="flex min-h-[520px] flex-col overflow-hidden rounded-lg border border-border bg-card">
@@ -353,7 +513,7 @@ export function LiveChatMonitor({
 
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>{filteredMessages.length.toLocaleString()} pesan tampil</span>
-          <span>Terbaru di atas</span>
+          <span>Refresh {Math.round(refreshMs / 1000)} detik</span>
           {lastUpdatedAt && (
             <span>Update {lastUpdatedAt.toLocaleTimeString('id-ID')}</span>
           )}
@@ -373,74 +533,23 @@ export function LiveChatMonitor({
           </div>
         ) : (
           filteredMessages.map((message) => (
-            <div
+            <LiveChatMessageItem
               key={message.id}
-              className={`rounded-lg border p-3 ${
-                replyTarget?.id === message.id
-                  ? 'border-accent bg-accent/10'
-                  : 'border-border bg-secondary/50'
-              }`}
-            >
-              <div className="mb-2 flex items-start gap-3">
-                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-accent/20 text-xs font-bold text-accent">
-                  {getMessageInitials(message.author) || 'V'}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-semibold text-foreground">
-                      {message.author}
-                    </span>
-                    <span className="flex-shrink-0 text-xs text-muted-foreground">
-                      {message.timeLabel}
-                    </span>
-                  </div>
-                  {message.meta && (
-                    <div className="truncate text-xs text-muted-foreground">
-                      {message.meta}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
-                {message.content}
-              </p>
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => prepareReply(message)}
-                  className="h-8 gap-1.5"
-                >
-                  <Reply className="h-3.5 w-3.5" />
-                  Balas
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() =>
-                    void copyText(
-                      message.id,
-                      `${message.author}: ${message.content}`
-                    )
-                  }
-                  className="h-8 gap-1.5 text-muted-foreground"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                  {copiedId === message.id ? 'Disalin' : 'Salin'}
-                </Button>
-              </div>
-            </div>
+              message={message}
+              isSelected={replyTarget?.id === message.id}
+              copiedId={copiedId}
+              onCopy={copyText}
+              onReply={prepareReply}
+            />
           ))
         )}
       </div>
 
       <div className="border-t border-border p-3">
         <div className="mb-2 text-xs font-medium text-muted-foreground">
-          {replyTarget ? `Draft balasan ke ${replyTarget.author}` : 'Draft balasan admin'}
+          {replyTarget
+            ? `Draft balasan ke ${replyTarget.author}`
+            : 'Draft balasan admin'}
         </div>
         <Textarea
           value={replyDraft}

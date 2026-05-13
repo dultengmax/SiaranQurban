@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Image from 'next/image'
 import { io } from 'socket.io-client'
@@ -27,7 +27,12 @@ const API_URL = 'https://dbmhq.site'
 const LIVE_VIEWER_SESSION_ID = 'live_utama'
 const TOKEN_STORAGE_KEYS = ['adminAccessToken', 'accessToken', 'token']
 
-type ViewerSocketStatus = 'idle' | 'missing-token' | 'connecting' | 'connected' | 'error'
+type ViewerSocketStatus =
+  | 'idle'
+  | 'missing-token'
+  | 'connecting'
+  | 'connected'
+  | 'error'
 
 interface ActiveViewer {
   id: string
@@ -116,6 +121,10 @@ function normalizeViewerPayload(data: unknown) {
   }
 }
 
+function getViewersSignature(total: number, viewers: ActiveViewer[]) {
+  return `${total}|${viewers.map((viewer) => `${viewer.id}:${viewer.name}`).join('|')}`
+}
+
 function getStoredAdminAccessToken() {
   if (process.env.NEXT_PUBLIC_ADMIN_ACCESS_TOKEN) {
     return process.env.NEXT_PUBLIC_ADMIN_ACCESS_TOKEN
@@ -145,6 +154,7 @@ export default function StreamViewerPage() {
   const params = useParams()
   const streamId = params.id as string
   const currentStream = mockStreams.find((stream) => stream.id === streamId)
+  const viewerSignatureRef = useRef('')
 
   const [isLiked, setIsLiked] = useState(false)
   const [isFollowing, setIsFollowing] = useState(false)
@@ -157,6 +167,18 @@ export default function StreamViewerPage() {
   const [activeViewerTotal, setActiveViewerTotal] = useState(0)
   const [activeViewers, setActiveViewers] = useState<ActiveViewer[]>([])
   const [viewerUpdatedAt, setViewerUpdatedAt] = useState<Date | null>(null)
+  const recommendedStreams = useMemo(() => {
+    if (!currentStream) {
+      return []
+    }
+
+    return mockStreams
+      .filter(
+        (stream) =>
+          stream.id !== streamId && stream.category === currentStream.category
+      )
+      .slice(0, 3)
+  }, [currentStream, streamId])
 
   useEffect(() => {
     const adminAccessToken = getStoredAdminAccessToken()
@@ -177,6 +199,8 @@ export default function StreamViewerPage() {
         token: adminAccessToken,
         monitorOnly: true,
       },
+      reconnectionDelayMax: 10000,
+      transports: ['websocket'],
     })
 
     socket.on('connect', () => {
@@ -198,10 +222,15 @@ export default function StreamViewerPage() {
 
     socket.on('logged_in_viewers', (data: unknown) => {
       const payload = normalizeViewerPayload(data)
+      const nextSignature = getViewersSignature(payload.total, payload.viewers)
 
-      setActiveViewerTotal(payload.total)
-      setActiveViewers(payload.viewers)
-      setViewerUpdatedAt(new Date())
+      if (nextSignature !== viewerSignatureRef.current) {
+        viewerSignatureRef.current = nextSignature
+        setActiveViewerTotal(payload.total)
+        setActiveViewers(payload.viewers)
+        setViewerUpdatedAt(new Date())
+      }
+
       setViewerSocketStatus('connected')
       setViewerSocketError(null)
     })
@@ -226,13 +255,6 @@ export default function StreamViewerPage() {
       </div>
     )
   }
-
-  const recommendedStreams = mockStreams
-    .filter(
-      (stream) =>
-        stream.id !== streamId && stream.category === currentStream.category
-    )
-    .slice(0, 3)
 
   return (
     <div className="min-h-screen bg-background">
@@ -503,6 +525,8 @@ export default function StreamViewerPage() {
             <LiveChatMonitor
               apiUrl={API_URL}
               sessionId={LIVE_VIEWER_SESSION_ID}
+              limit={60}
+              refreshMs={10000}
             />
 
             <div className="space-y-3">
