@@ -25,18 +25,139 @@ const HLS_FALLBACK_URL = `${HLS_SERVER_ORIGIN}/${STREAM_PATH}/index.m3u8`
 const PUBLIC_ICE_HOST = '187.77.114.161'
 const WEBRTC_PORT = '8889'
 const ICE_MUX_PORT = '8189'
-const OUTPUT_WIDTH = 1080
-const OUTPUT_HEIGHT = 1920
-const OUTPUT_FPS = 30
-const OUTPUT_RESOLUTION = `${OUTPUT_WIDTH} x ${OUTPUT_HEIGHT}`
+const TARGET_ASPECT_RATIO = 9 / 16
+const DIRECT_STREAM_RATIO_TOLERANCE = 0.025
 
-const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
-  video: {
-    width: { ideal: OUTPUT_WIDTH },
-    height: { ideal: OUTPUT_HEIGHT },
-    aspectRatio: { ideal: OUTPUT_WIDTH / OUTPUT_HEIGHT },
-  },
-  audio: true,
+type BroadcastProfile = {
+  label: string
+  width: number
+  height: number
+  fps: number
+  maxBitrate: number
+}
+
+type BroadcastOutput = {
+  stream: MediaStream
+  modeLabel: string
+}
+
+const DESKTOP_BROADCAST_PROFILE: BroadcastProfile = {
+  label: 'Standar',
+  width: 720,
+  height: 1280,
+  fps: 24,
+  maxBitrate: 1_400_000,
+}
+
+const MOBILE_BROADCAST_PROFILE: BroadcastProfile = {
+  label: 'Hemat HP',
+  width: 540,
+  height: 960,
+  fps: 20,
+  maxBitrate: 750_000,
+}
+
+const DEFAULT_BROADCAST_PROFILE = DESKTOP_BROADCAST_PROFILE
+
+function getOutputResolution(profile: BroadcastProfile) {
+  return `${profile.width} x ${profile.height}`
+}
+
+function isMobileOrLowPowerDevice() {
+  const userAgentData = (
+    navigator as Navigator & { userAgentData?: { mobile?: boolean } }
+  ).userAgentData
+
+  if (userAgentData?.mobile) {
+    return true
+  }
+
+  const narrowTouchDevice =
+    window.matchMedia('(max-width: 820px)').matches &&
+    navigator.maxTouchPoints > 0
+  const lowCoreDevice = (navigator.hardwareConcurrency ?? 8) <= 4
+
+  return narrowTouchDevice || lowCoreDevice
+}
+
+function getBroadcastProfile() {
+  return isMobileOrLowPowerDevice()
+    ? MOBILE_BROADCAST_PROFILE
+    : DESKTOP_BROADCAST_PROFILE
+}
+
+function getCameraConstraints(profile: BroadcastProfile): MediaStreamConstraints {
+  return {
+    video: {
+      width: { ideal: profile.width },
+      height: { ideal: profile.height },
+      aspectRatio: { ideal: TARGET_ASPECT_RATIO },
+      frameRate: { ideal: profile.fps },
+      facingMode: { ideal: 'environment' },
+    },
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+  }
+}
+
+function canUseSourceStreamDirectly(
+  sourceVideo: HTMLVideoElement,
+  profile: BroadcastProfile
+) {
+  const sourceWidth = sourceVideo.videoWidth
+  const sourceHeight = sourceVideo.videoHeight
+
+  if (!sourceWidth || !sourceHeight) {
+    return false
+  }
+
+  const sourceRatio = sourceWidth / sourceHeight
+  const matchesPortraitRatio =
+    Math.abs(sourceRatio - TARGET_ASPECT_RATIO) <=
+    DIRECT_STREAM_RATIO_TOLERANCE
+  const staysInsideProfile =
+    sourceWidth <= profile.width * 1.08 &&
+    sourceHeight <= profile.height * 1.08
+
+  return sourceHeight > sourceWidth && matchesPortraitRatio && staysInsideProfile
+}
+
+function createDirectBroadcastStream(sourceStream: MediaStream) {
+  const directStream = new MediaStream()
+
+  sourceStream
+    .getVideoTracks()
+    .forEach((track) => directStream.addTrack(track))
+  sourceStream
+    .getAudioTracks()
+    .forEach((track) => directStream.addTrack(track))
+
+  return directStream
+}
+
+async function applyVideoSenderLimits(
+  sender: RTCRtpSender,
+  profile: BroadcastProfile
+) {
+  const parameters = sender.getParameters()
+  const [firstEncoding = {}] = parameters.encodings ?? []
+
+  parameters.encodings = [
+    {
+      ...firstEncoding,
+      maxBitrate: profile.maxBitrate,
+      maxFramerate: profile.fps,
+    },
+  ]
+
+  try {
+    await sender.setParameters(parameters)
+  } catch {
+    // Some mobile browsers accept the stream but reject sender parameters.
+  }
 }
 
 function waitForIceGatheringComplete(pc: RTCPeerConnection) {
@@ -95,7 +216,7 @@ export function StudioAdmin() {
   const broadcastStreamRef = useRef<MediaStream | null>(null)
   const sourceVideoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const animationFrameRef = useRef<number | null>(null)
+  const drawTimerRef = useRef<number | null>(null)
   const whipSessionRef = useRef<string | null>(null)
 
   const [isStreaming, setIsStreaming] = useState(false)
@@ -107,11 +228,19 @@ export function StudioAdmin() {
     'Kamera siap dinyalakan'
   )
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [broadcastProfile, setBroadcastProfile] = useState(
+    DEFAULT_BROADCAST_PROFILE
+  )
+  const [outputMode, setOutputMode] = useState('Menunggu kamera')
+
+  useEffect(() => {
+    setBroadcastProfile(getBroadcastProfile())
+  }, [])
 
   const stopPortraitComposer = useCallback(() => {
-    if (animationFrameRef.current !== null) {
-      window.cancelAnimationFrame(animationFrameRef.current)
-      animationFrameRef.current = null
+    if (drawTimerRef.current !== null) {
+      window.clearTimeout(drawTimerRef.current)
+      drawTimerRef.current = null
     }
 
     if (sourceVideoRef.current) {
@@ -140,13 +269,17 @@ export function StudioAdmin() {
 
       if (updatePreview) {
         setHasPreview(false)
+        setOutputMode('Menunggu kamera')
       }
     },
     [stopPortraitComposer]
   )
 
   const createPortraitBroadcastStream = useCallback(
-    async (sourceStream: MediaStream) => {
+    async (
+      sourceStream: MediaStream,
+      profile: BroadcastProfile
+    ): Promise<BroadcastOutput> => {
       stopPortraitComposer()
 
       const sourceVideo = document.createElement('video')
@@ -183,33 +316,55 @@ export function StudioAdmin() {
 
       await sourceVideo.play()
 
+      if (canUseSourceStreamDirectly(sourceVideo, profile)) {
+        const directStream = createDirectBroadcastStream(sourceStream)
+        broadcastStreamRef.current = directStream
+        sourceVideo.pause()
+        sourceVideo.srcObject = null
+        sourceVideoRef.current = null
+
+        return {
+          stream: directStream,
+          modeLabel: 'kamera langsung',
+        }
+      }
+
       const canvas = document.createElement('canvas')
-      canvas.width = OUTPUT_WIDTH
-      canvas.height = OUTPUT_HEIGHT
+      canvas.width = profile.width
+      canvas.height = profile.height
       canvasRef.current = canvas
 
-      const context = canvas.getContext('2d')
+      const context = canvas.getContext('2d', { alpha: false })
 
       if (!context) {
         throw new Error('Canvas portrait tidak tersedia.')
       }
 
+      context.imageSmoothingEnabled = true
+      context.imageSmoothingQuality = 'low'
+
+      const frameInterval = 1000 / profile.fps
+
       const drawFrame = () => {
-        const sourceWidth = sourceVideo.videoWidth || OUTPUT_WIDTH
-        const sourceHeight = sourceVideo.videoHeight || OUTPUT_HEIGHT
+        if (sourceVideo.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+          drawTimerRef.current = window.setTimeout(drawFrame, frameInterval)
+          return
+        }
+
+        const sourceWidth = sourceVideo.videoWidth || profile.width
+        const sourceHeight = sourceVideo.videoHeight || profile.height
         const sourceRatio = sourceWidth / sourceHeight
-        const outputRatio = OUTPUT_WIDTH / OUTPUT_HEIGHT
 
         let cropX = 0
         let cropY = 0
         let cropWidth = sourceWidth
         let cropHeight = sourceHeight
 
-        if (sourceRatio > outputRatio) {
-          cropWidth = sourceHeight * outputRatio
+        if (sourceRatio > TARGET_ASPECT_RATIO) {
+          cropWidth = sourceHeight * TARGET_ASPECT_RATIO
           cropX = (sourceWidth - cropWidth) / 2
         } else {
-          cropHeight = sourceWidth / outputRatio
+          cropHeight = sourceWidth / TARGET_ASPECT_RATIO
           cropY = (sourceHeight - cropHeight) / 2
         }
 
@@ -221,22 +376,25 @@ export function StudioAdmin() {
           cropHeight,
           0,
           0,
-          OUTPUT_WIDTH,
-          OUTPUT_HEIGHT
+          profile.width,
+          profile.height
         )
 
-        animationFrameRef.current = window.requestAnimationFrame(drawFrame)
+        drawTimerRef.current = window.setTimeout(drawFrame, frameInterval)
       }
 
       drawFrame()
 
-      const broadcastStream = canvas.captureStream(OUTPUT_FPS)
+      const broadcastStream = canvas.captureStream(profile.fps)
       sourceStream
         .getAudioTracks()
         .forEach((track) => broadcastStream.addTrack(track))
       broadcastStreamRef.current = broadcastStream
 
-      return broadcastStream
+      return {
+        stream: broadcastStream,
+        modeLabel: 'canvas ringan',
+      }
     },
     [stopPortraitComposer]
   )
@@ -257,6 +415,7 @@ export function StudioAdmin() {
     setIsStreaming(false)
     setConnectionState('closed')
     setStatusMessage('Siaran dihentikan')
+    setOutputMode('Menunggu kamera')
 
     whipSessionRef.current = null
     closePeerConnection()
@@ -286,23 +445,48 @@ export function StudioAdmin() {
       return
     }
 
+    const profile = getBroadcastProfile()
+
     setIsConnecting(true)
+    setBroadcastProfile(profile)
+    setOutputMode('Menunggu kamera')
     setErrorMessage(null)
-    setStatusMessage('Meminta izin kamera dan mikrofon')
+    setStatusMessage(
+      `Meminta izin kamera (${getOutputResolution(profile)} @ ${profile.fps}fps)`
+    )
 
     try {
       releaseLocalMedia()
       closePeerConnection()
 
       const stream = await navigator.mediaDevices.getUserMedia(
-        CAMERA_CONSTRAINTS
+        getCameraConstraints(profile)
+      )
+
+      await Promise.all(
+        stream.getVideoTracks().map((track) => {
+          track.contentHint = 'motion'
+
+          return track
+            .applyConstraints({ frameRate: { max: profile.fps } })
+            .catch(() => {
+              // Browser may already choose the nearest supported camera mode.
+            })
+        })
       )
 
       sourceStreamRef.current = stream
 
-      setStatusMessage('Membentuk output portrait 1080x1920')
+      setStatusMessage(
+        `Menyiapkan output ${getOutputResolution(profile)} @ ${profile.fps}fps`
+      )
 
-      const broadcastStream = await createPortraitBroadcastStream(stream)
+      const broadcastOutput = await createPortraitBroadcastStream(
+        stream,
+        profile
+      )
+      const broadcastStream = broadcastOutput.stream
+      setOutputMode(broadcastOutput.modeLabel)
 
       if (videoRef.current) {
         videoRef.current.srcObject = broadcastStream
@@ -320,7 +504,7 @@ export function StudioAdmin() {
         setConnectionState(pc.connectionState)
 
         if (pc.connectionState === 'connected') {
-          setStatusMessage(`Siaran aktif ke ${STREAM_PATH}`)
+          setStatusMessage(`Siaran aktif ke ${STREAM_PATH} (${profile.label})`)
         }
 
         if (
@@ -337,9 +521,17 @@ export function StudioAdmin() {
         }
       }
 
-      broadcastStream
-        .getTracks()
-        .forEach((track) => pc.addTrack(track, broadcastStream))
+      const senderLimitTasks = broadcastStream.getTracks().map((track) => {
+        const sender = pc.addTrack(track, broadcastStream)
+
+        if (track.kind === 'video') {
+          return applyVideoSenderLimits(sender, profile)
+        }
+
+        return Promise.resolve()
+      })
+
+      await Promise.all(senderLimitTasks)
 
       setStatusMessage('Mengirim negosiasi ke MediaMTX')
 
@@ -378,7 +570,7 @@ export function StudioAdmin() {
       )
 
       setIsStreaming(true)
-      setStatusMessage(`Siaran aktif ke ${STREAM_PATH}`)
+      setStatusMessage(`Siaran aktif ke ${STREAM_PATH} (${profile.label})`)
     } catch (error) {
       const message = getStreamingErrorMessage(error)
 
@@ -411,6 +603,7 @@ export function StudioAdmin() {
     : isConnecting
       ? 'Menghubungkan'
       : 'Mulai Siaran Langsung'
+  const outputResolution = getOutputResolution(broadcastProfile)
 
   return (
     <main className="min-h-svh overflow-x-hidden bg-neutral-950 text-white">
@@ -425,7 +618,7 @@ export function StudioAdmin() {
               Studio Penyiaran
             </h1>
             <p className="mt-2 max-w-2xl text-xs leading-5 text-neutral-400 sm:text-sm">
-              Output portrait 1080x1920 via WebRTC WHIP ke path {STREAM_PATH}.
+              Output portrait adaptif via WebRTC WHIP ke path {STREAM_PATH}.
             </p>
           </div>
 
@@ -433,24 +626,26 @@ export function StudioAdmin() {
             <div className="min-w-0 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
               <div className="text-neutral-500">Resolusi</div>
               <div className="mt-1 truncate font-semibold text-white">
-                {OUTPUT_RESOLUTION}
+                {outputResolution}
               </div>
             </div>
             <div className="min-w-0 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
-              <div className="text-neutral-500">Rasio</div>
-              <div className="mt-1 font-semibold text-white">9:16</div>
+              <div className="text-neutral-500">Frame</div>
+              <div className="mt-1 font-semibold text-white">
+                {broadcastProfile.fps} fps
+              </div>
             </div>
             <div className="col-span-2 min-w-0 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 sm:col-span-1">
-              <div className="text-neutral-500">Proxy</div>
+              <div className="text-neutral-500">Mode</div>
               <div className="mt-1 truncate font-semibold text-white">
-                WebRTC {WEBRTC_PORT} / HLS 8888
+                {broadcastProfile.label}
               </div>
             </div>
           </div>
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,480px)_minmax(280px,1fr)] xl:items-start xl:justify-center">
-          <div className="mx-auto w-full max-w-[390px] overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900 shadow-2xl shadow-black/40 sm:max-w-[430px]">
+          <div className="mx-auto w-full max-w-[390px] overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900 sm:max-w-[430px] sm:shadow-2xl sm:shadow-black/40">
             <div className="relative aspect-[9/16] bg-black">
               <video
                 ref={videoRef}
@@ -473,20 +668,20 @@ export function StudioAdmin() {
 
               <div className="absolute left-3 top-3 flex flex-wrap items-center gap-2 sm:left-4 sm:top-4">
                 {isStreaming && (
-                  <div className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-1 text-xs font-bold uppercase text-white shadow-lg shadow-red-950/50">
+                  <div className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-1 text-xs font-bold uppercase text-white sm:shadow-lg sm:shadow-red-950/50">
                     <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
                     Live
                   </div>
                 )}
                 {isConnecting && (
-                  <div className="inline-flex items-center gap-2 rounded-md border border-white/15 bg-black/60 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
+                  <div className="inline-flex items-center gap-2 rounded-md border border-white/15 bg-black/75 px-3 py-1 text-xs font-semibold text-white sm:bg-black/60 sm:backdrop-blur">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     Menyambungkan
                   </div>
                 )}
               </div>
 
-              <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/65 px-3 py-2.5 backdrop-blur sm:bottom-4 sm:left-4 sm:right-4 sm:px-4 sm:py-3">
+              <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/75 px-3 py-2.5 sm:bottom-4 sm:left-4 sm:right-4 sm:bg-black/65 sm:px-4 sm:py-3 sm:backdrop-blur">
                 <div className="min-w-0">
                   <div className="text-xs uppercase text-neutral-500">
                     Status
@@ -512,7 +707,7 @@ export function StudioAdmin() {
                     Studio Penyiaran
                   </h2>
                   <p className="text-sm text-neutral-400">
-                    Resolusi Output: 1080x1920
+                    Output: {outputResolution}
                   </p>
                 </div>
               </div>
@@ -524,7 +719,7 @@ export function StudioAdmin() {
                 className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-md px-6 py-3 text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-70 md:w-auto ${
                   isStreaming
                     ? 'bg-neutral-700 text-white hover:bg-neutral-600'
-                    : 'bg-red-600 text-white shadow-[0_0_24px_rgba(220,38,38,0.35)] hover:bg-red-500'
+                    : 'bg-red-600 text-white hover:bg-red-500 sm:shadow-[0_0_24px_rgba(220,38,38,0.35)]'
                 }`}
               >
                 {isStreaming ? (
@@ -567,13 +762,19 @@ export function StudioAdmin() {
                 <div className="flex items-start justify-between gap-4">
                   <dt className="shrink-0 text-neutral-500">Video</dt>
                   <dd className="min-w-0 text-right font-medium text-neutral-100">
-                    {OUTPUT_RESOLUTION}
+                    {outputResolution}
                   </dd>
                 </div>
                 <div className="flex items-start justify-between gap-4">
                   <dt className="shrink-0 text-neutral-500">Frame</dt>
                   <dd className="min-w-0 text-right font-medium text-neutral-100">
-                    Portrait 9:16
+                    {broadcastProfile.fps} fps / 9:16
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="shrink-0 text-neutral-500">Proses</dt>
+                  <dd className="min-w-0 text-right font-medium text-neutral-100">
+                    {outputMode}
                   </dd>
                 </div>
               </dl>
@@ -589,6 +790,12 @@ export function StudioAdmin() {
                   <dt className="shrink-0 text-neutral-500">ICE Host</dt>
                   <dd className="min-w-0 text-right font-medium text-neutral-100">
                     {PUBLIC_ICE_HOST}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="shrink-0 text-neutral-500">Port</dt>
+                  <dd className="min-w-0 text-right font-medium text-neutral-100">
+                    WebRTC {WEBRTC_PORT} / ICE {ICE_MUX_PORT}
                   </dd>
                 </div>
                 <div className="flex items-start justify-between gap-4">
