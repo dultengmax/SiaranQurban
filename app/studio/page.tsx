@@ -3,7 +3,8 @@ import { StudioAdmin } from '@/components/StudioAdmin'
 
 export const metadata: Metadata = {
   title: 'Studio Penyiaran | StreamStudio',
-  description: 'Halaman siaran langsung WebRTC WHIP untuk kamera utama.',
+  description:
+    'Halaman siaran langsung WebRTC WHIP untuk kamera depan dan belakang.',
 }
 
 export default function StudioPage() {

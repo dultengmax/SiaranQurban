@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
+  Camera,
   ChevronDown,
   CheckCircle2,
   Clapperboard,
   Loader2,
-  MonitorUp,
   Radio,
   Square,
+  SwitchCamera,
   Video,
   Wifi,
 } from 'lucide-react'
@@ -35,6 +36,13 @@ type BroadcastProfile = {
   height: number
   fps: number
   maxBitrate: number
+}
+
+type CameraFacingMode = 'user' | 'environment'
+
+type CameraOption = {
+  label: string
+  value: CameraFacingMode
 }
 
 type BroadcastOutput = {
@@ -71,17 +79,26 @@ const DESKTOP_BROADCAST_PROFILE: BroadcastProfile = {
 }
 
 const MOBILE_BROADCAST_PROFILE: BroadcastProfile = {
-  label: 'Ringan HP',
-  width: 360,
-  height: 640,
+  label: 'HD Ringan HP',
+  width: 540,
+  height: 960,
   fps: 24,
-  maxBitrate: 600_000,
+  maxBitrate: 1_000_000,
 }
 
 const DEFAULT_BROADCAST_PROFILE = MOBILE_BROADCAST_PROFILE
+const DEFAULT_CAMERA_FACING_MODE: CameraFacingMode = 'user'
+const CAMERA_OPTIONS: CameraOption[] = [
+  { label: 'Depan', value: 'user' },
+  { label: 'Belakang', value: 'environment' },
+]
 
 function getOutputResolution(profile: BroadcastProfile) {
   return `${profile.width} x ${profile.height}`
+}
+
+function getCameraLabel(facingMode: CameraFacingMode) {
+  return facingMode === 'user' ? 'Kamera depan' : 'Kamera belakang'
 }
 
 function isMobileOrLowPowerDevice() {
@@ -107,13 +124,19 @@ function getBroadcastProfile() {
     : DESKTOP_BROADCAST_PROFILE
 }
 
-function getCameraConstraints(profile: BroadcastProfile): MediaStreamConstraints {
+function getCameraConstraints(
+  profile: BroadcastProfile,
+  facingMode: CameraFacingMode,
+  requireFacingMode = false
+): MediaStreamConstraints {
   const videoConstraints: BrowserVideoConstraints = {
     width: { ideal: profile.width },
     height: { ideal: profile.height },
     aspectRatio: { ideal: TARGET_ASPECT_RATIO },
     frameRate: { ideal: profile.fps },
-    facingMode: { ideal: 'environment' },
+    facingMode: requireFacingMode
+      ? { exact: facingMode }
+      : { ideal: facingMode },
     resizeMode: { ideal: 'crop-and-scale' },
   }
 
@@ -124,6 +147,34 @@ function getCameraConstraints(profile: BroadcastProfile): MediaStreamConstraints
       noiseSuppression: true,
       autoGainControl: true,
     },
+  }
+}
+
+function isFacingModeConstraintError(error: unknown) {
+  return (
+    error instanceof DOMException &&
+    (error.name === 'OverconstrainedError' ||
+      error.name === 'NotFoundError' ||
+      error.name === 'ConstraintNotSatisfiedError')
+  )
+}
+
+async function requestCameraStream(
+  profile: BroadcastProfile,
+  facingMode: CameraFacingMode
+) {
+  try {
+    return await navigator.mediaDevices.getUserMedia(
+      getCameraConstraints(profile, facingMode, true)
+    )
+  } catch (error) {
+    if (isFacingModeConstraintError(error)) {
+      return navigator.mediaDevices.getUserMedia(
+        getCameraConstraints(profile, facingMode)
+      )
+    }
+
+    throw error
   }
 }
 
@@ -241,6 +292,55 @@ function getStreamingErrorMessage(error: unknown) {
   return `Streaming gagal. Endpoint: ${WHIP_ENDPOINT}`
 }
 
+type CameraSwitcherProps = {
+  value: CameraFacingMode
+  disabled: boolean
+  onChange: (facingMode: CameraFacingMode) => void
+  className?: string
+}
+
+function CameraSwitcher({
+  value,
+  disabled,
+  onChange,
+  className,
+}: CameraSwitcherProps) {
+  return (
+    <div
+      aria-label="Pilih kamera"
+      className={`grid grid-cols-2 gap-1 rounded-md border border-white/10 bg-black/35 p-1 ${className ?? ''}`}
+      role="group"
+    >
+      {CAMERA_OPTIONS.map((option) => {
+        const isSelected = option.value === value
+
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={isSelected}
+            disabled={disabled}
+            onClick={() => onChange(option.value)}
+            title={
+              disabled
+                ? 'Ganti kamera saat siaran belum aktif'
+                : `Gunakan ${getCameraLabel(option.value).toLowerCase()}`
+            }
+            className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm ${
+              isSelected
+                ? 'bg-white text-neutral-950 shadow-sm'
+                : 'text-neutral-300 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <SwitchCamera className="h-4 w-4" />
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export function StudioAdmin() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const pcRef = useRef<RTCPeerConnection | null>(null)
@@ -263,11 +363,30 @@ export function StudioAdmin() {
   const [broadcastProfile, setBroadcastProfile] = useState(
     DEFAULT_BROADCAST_PROFILE
   )
+  const [cameraFacingMode, setCameraFacingMode] = useState<CameraFacingMode>(
+    DEFAULT_CAMERA_FACING_MODE
+  )
   const [outputMode, setOutputMode] = useState('Menunggu kamera')
 
   useEffect(() => {
     setBroadcastProfile(getBroadcastProfile())
   }, [])
+
+  const handleCameraFacingModeChange = useCallback(
+    (nextFacingMode: CameraFacingMode) => {
+      if (
+        nextFacingMode === cameraFacingMode ||
+        isConnecting ||
+        isStreaming
+      ) {
+        return
+      }
+
+      setCameraFacingMode(nextFacingMode)
+      setStatusMessage(`${getCameraLabel(nextFacingMode)} dipilih`)
+    },
+    [cameraFacingMode, isConnecting, isStreaming]
+  )
 
   const stopPortraitComposer = useCallback(() => {
     if (drawLoopRef.current) {
@@ -518,21 +637,24 @@ export function StudioAdmin() {
     }
 
     const profile = getBroadcastProfile()
+    const requestedCameraFacingMode = cameraFacingMode
+    const requestedCameraLabel = getCameraLabel(requestedCameraFacingMode)
 
     setIsConnecting(true)
     setBroadcastProfile(profile)
     setOutputMode('Menunggu kamera')
     setErrorMessage(null)
     setStatusMessage(
-      `Meminta izin kamera (${getOutputResolution(profile)} @ ${profile.fps}fps)`
+      `Meminta izin ${requestedCameraLabel.toLowerCase()} (${getOutputResolution(profile)} @ ${profile.fps}fps)`
     )
 
     try {
       releaseLocalMedia()
       closePeerConnection()
 
-      const stream = await navigator.mediaDevices.getUserMedia(
-        getCameraConstraints(profile)
+      const stream = await requestCameraStream(
+        profile,
+        requestedCameraFacingMode
       )
 
       await Promise.all(
@@ -542,6 +664,7 @@ export function StudioAdmin() {
             width: { ideal: profile.width },
             height: { ideal: profile.height },
             frameRate: { ideal: profile.fps, max: profile.fps },
+            facingMode: { ideal: requestedCameraFacingMode },
             resizeMode: { ideal: 'crop-and-scale' },
           }
 
@@ -582,7 +705,9 @@ export function StudioAdmin() {
         setConnectionState(pc.connectionState)
 
         if (pc.connectionState === 'connected') {
-          setStatusMessage(`Siaran aktif ke ${STREAM_PATH} (${profile.label})`)
+          setStatusMessage(
+            `Siaran aktif ke ${STREAM_PATH} (${profile.label}, ${requestedCameraLabel.toLowerCase()})`
+          )
         }
 
         if (
@@ -648,7 +773,9 @@ export function StudioAdmin() {
       )
 
       setIsStreaming(true)
-      setStatusMessage(`Siaran aktif ke ${STREAM_PATH} (${profile.label})`)
+      setStatusMessage(
+        `Siaran aktif ke ${STREAM_PATH} (${profile.label}, ${requestedCameraLabel.toLowerCase()})`
+      )
     } catch (error) {
       const message = getStreamingErrorMessage(error)
 
@@ -664,6 +791,7 @@ export function StudioAdmin() {
   }, [
     closePeerConnection,
     createPortraitBroadcastStream,
+    cameraFacingMode,
     isConnecting,
     isStreaming,
     releaseLocalMedia,
@@ -682,6 +810,8 @@ export function StudioAdmin() {
       ? 'Menghubungkan'
       : 'Mulai Siaran Langsung'
   const outputResolution = getOutputResolution(broadcastProfile)
+  const activeCameraLabel = getCameraLabel(cameraFacingMode)
+  const canSwitchCamera = !isConnecting && !isStreaming
   const handleBroadcastAction = isStreaming ? stopStreaming : startStreaming
   const connectionDotClass = isStreaming
     ? 'bg-emerald-400'
@@ -691,7 +821,7 @@ export function StudioAdmin() {
 
   return (
     <main className="min-h-svh overflow-x-hidden bg-[#070707] text-white">
-      <section className="mx-auto flex min-h-svh w-full max-w-7xl flex-col px-3 pb-[calc(env(safe-area-inset-bottom)+7rem)] pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:px-5 sm:pb-6 sm:pt-5 lg:px-8 lg:py-8 xl:justify-center">
+      <section className="mx-auto flex min-h-svh w-full max-w-7xl flex-col px-3 pb-[calc(env(safe-area-inset-bottom)+9.5rem)] pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:px-5 sm:pb-6 sm:pt-5 lg:px-8 lg:py-8 xl:justify-center">
         <div className="mb-3 md:mb-6 md:flex md:items-end md:justify-between md:border-b md:border-white/10 md:pb-5">
           <div className="min-w-0">
             <div className="mb-2 flex items-center gap-2">
@@ -708,11 +838,14 @@ export function StudioAdmin() {
             </h1>
             <p className="mt-1 hidden max-w-2xl text-sm leading-6 text-neutral-400 sm:block">
               Output portrait adaptif via WebRTC WHIP untuk siaran kamera
-              utama.
+              depan atau belakang.
             </p>
           </div>
 
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1 text-[11px] text-neutral-300 md:hidden">
+            <span className="shrink-0 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1">
+              {activeCameraLabel}
+            </span>
             <span className="shrink-0 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1">
               {outputResolution}
             </span>
@@ -724,7 +857,13 @@ export function StudioAdmin() {
             </span>
           </div>
 
-          <div className="hidden grid-cols-3 gap-2 text-xs text-neutral-300 md:grid">
+          <div className="hidden grid-cols-4 gap-2 text-xs text-neutral-300 md:grid">
+            <div className="min-w-24 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2">
+              <div className="text-neutral-500">Kamera</div>
+              <div className="mt-1 truncate font-semibold text-white">
+                {activeCameraLabel}
+              </div>
+            </div>
             <div className="min-w-24 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2">
               <div className="text-neutral-500">Resolusi</div>
               <div className="mt-1 truncate font-semibold text-white">
@@ -754,7 +893,11 @@ export function StudioAdmin() {
                 autoPlay
                 muted
                 playsInline
-                className="h-full w-full object-cover"
+                className="h-full w-full object-cover transition-transform duration-200"
+                style={{
+                  transform:
+                    cameraFacingMode === 'user' ? 'scaleX(-1)' : undefined,
+                }}
               />
 
               {!hasPreview && (
@@ -796,40 +939,49 @@ export function StudioAdmin() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3 border-t border-white/10 bg-neutral-900 px-3 py-3 sm:p-5">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white/[0.06] text-neutral-200 sm:h-10 sm:w-10">
-                  <MonitorUp className="h-4 w-4 sm:h-5 sm:w-5" />
+            <div className="border-t border-white/10 bg-neutral-900 px-3 py-3 sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white/[0.06] text-neutral-200 sm:h-10 sm:w-10">
+                    <Camera className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="truncate text-sm font-semibold sm:text-lg">
+                      {activeCameraLabel}
+                    </h2>
+                    <p className="truncate text-xs text-neutral-400 sm:text-sm">
+                      {outputResolution} / {broadcastProfile.fps}fps
+                    </p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <h2 className="truncate text-sm font-semibold sm:text-lg">
-                    Kamera utama
-                  </h2>
-                  <p className="truncate text-xs text-neutral-400 sm:text-sm">
-                    {outputResolution} / {broadcastProfile.fps}fps
-                  </p>
-                </div>
+
+                <button
+                  type="button"
+                  onClick={handleBroadcastAction}
+                  disabled={isConnecting}
+                  className={`hidden min-h-12 items-center justify-center gap-2 rounded-md px-6 py-3 text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-70 md:inline-flex ${
+                    isStreaming
+                      ? 'bg-neutral-700 text-white hover:bg-neutral-600'
+                      : 'bg-red-600 text-white hover:bg-red-500 sm:shadow-[0_0_24px_rgba(220,38,38,0.35)]'
+                  }`}
+                >
+                  {isStreaming ? (
+                    <Square className="h-4 w-4 fill-current" />
+                  ) : isConnecting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Radio className="h-4 w-4" />
+                  )}
+                  {buttonLabel}
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={handleBroadcastAction}
-                disabled={isConnecting}
-                className={`hidden min-h-12 items-center justify-center gap-2 rounded-md px-6 py-3 text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-70 md:inline-flex ${
-                  isStreaming
-                    ? 'bg-neutral-700 text-white hover:bg-neutral-600'
-                    : 'bg-red-600 text-white hover:bg-red-500 sm:shadow-[0_0_24px_rgba(220,38,38,0.35)]'
-                }`}
-              >
-                {isStreaming ? (
-                  <Square className="h-4 w-4 fill-current" />
-                ) : isConnecting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Radio className="h-4 w-4" />
-                )}
-                {buttonLabel}
-              </button>
+              <CameraSwitcher
+                value={cameraFacingMode}
+                disabled={!canSwitchCamera}
+                onChange={handleCameraFacingModeChange}
+                className="mt-3 hidden md:grid"
+              />
             </div>
           </div>
 
@@ -856,6 +1008,12 @@ export function StudioAdmin() {
                 <dt className="shrink-0 text-neutral-500">Path</dt>
                 <dd className="min-w-0 break-words text-right font-medium text-neutral-100">
                   {STREAM_PATH}
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="shrink-0 text-neutral-500">Kamera</dt>
+                <dd className="min-w-0 text-right font-medium text-neutral-100">
+                  {activeCameraLabel}
                 </dd>
               </div>
               <div className="flex items-start justify-between gap-4">
@@ -890,6 +1048,12 @@ export function StudioAdmin() {
                   <dt className="shrink-0 text-neutral-500">Path</dt>
                   <dd className="min-w-0 break-words text-right font-medium text-neutral-100">
                     {STREAM_PATH}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="shrink-0 text-neutral-500">Kamera</dt>
+                  <dd className="min-w-0 text-right font-medium text-neutral-100">
+                    {activeCameraLabel}
                   </dd>
                 </div>
                 <div className="flex items-start justify-between gap-4">
@@ -1001,6 +1165,12 @@ export function StudioAdmin() {
 
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-[#070707]/95 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2.5 backdrop-blur md:hidden">
         <div className="mx-auto max-w-[430px]">
+          <CameraSwitcher
+            value={cameraFacingMode}
+            disabled={!canSwitchCamera}
+            onChange={handleCameraFacingModeChange}
+            className="mb-2"
+          />
           <div className="mb-2 flex items-center gap-2 text-xs text-neutral-400">
             <span className={`h-2 w-2 rounded-full ${connectionDotClass}`} />
             <span className="truncate">{statusMessage}</span>
